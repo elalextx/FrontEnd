@@ -2,6 +2,8 @@
 require_once 'graphql.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 
+include 'header.php';
+
 $usuario = $_SESSION['usuario'] ?? null;
 if (!$usuario || ($usuario['perfilTipo'] ?? '') !== 'Empleado') {
     header('Location: login_empleado.php');
@@ -11,8 +13,10 @@ if (!$usuario || ($usuario['perfilTipo'] ?? '') !== 'Empleado') {
 $mensaje = $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_confirmacion'])) {
-    $rut = $_POST['rut'] ?? '';
-    $accion = $_POST['accion_confirmacion'] ?? '';
+    validate_csrf();
+    
+    $rut = validar_rut($_POST['rut'] ?? '');
+    $accion = sanitizar_input($_POST['accion_confirmacion'] ?? '');
     
     if ($rut && $accion) {
         $nuevoEstado = ($accion === 'aceptar') ? 'activo' : 'rechazado';
@@ -38,10 +42,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_confirmacion']
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'editar') {
-    $rut = trim($_POST['rut'] ?? '');
-    $nombre = trim($_POST['nombre'] ?? '');
-    $email = trim($_POST['email'] ?? '');
-    $estado = trim($_POST['estado'] ?? '');
+    validate_csrf();
+    
+    $rut = validar_rut($_POST['rut'] ?? '');
+    $nombre = sanitizar_input($_POST['nombre'] ?? '');
+    $email = validar_email($_POST['email'] ?? '');
+    $estado = sanitizar_input($_POST['estado'] ?? '');
 
     if ($rut && $nombre && $email && $estado) {
         $m = 'mutation($rut:String!, $nombre:String!, $email:String!, $estado:String!) { 
@@ -68,7 +74,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'eliminar') {
-    $rut = trim($_POST['rut'] ?? '');
+    validate_csrf();
+    
+    $rut = validar_rut($_POST['rut'] ?? '');
     
     if ($rut) {
         $m = 'mutation($rut:String!) { 
@@ -93,7 +101,7 @@ $q = 'query { getClientes { id rut nombre email estado } }';
 $res = graphql_request($q, [], true);
 $clientes = $res['data']['getClientes'] ?? [];
 
-$term = trim($_GET['q'] ?? '');
+$term = sanitizar_input($_GET['q'] ?? '');
 if ($term !== '') {
     $clientes = array_values(array_filter($clientes, function($c) use ($term) {
         $t = mb_strtolower($term);
@@ -106,7 +114,6 @@ $clientesPendientes = array_filter($clientes, function($c) {
     return ($c['estado'] ?? 'pendiente') === 'pendiente';
 });
 
-include 'header.php';
 include 'navbar.php';
 ?>
 
@@ -146,11 +153,13 @@ include 'navbar.php';
                         </div>
                         <div class="col-md-4 text-end">
                             <form method="post" class="d-inline">
+                                <?php echo csrf_field(); ?>
                                 <input type="hidden" name="accion_confirmacion" value="aceptar">
                                 <input type="hidden" name="rut" value="<?= htmlspecialchars($c['rut']) ?>">
                                 <button class="btn btn-success btn-sm">Aceptar</button>
                             </form>
                             <form method="post" class="d-inline">
+                                <?php echo csrf_field(); ?>
                                 <input type="hidden" name="accion_confirmacion" value="rechazar">
                                 <input type="hidden" name="rut" value="<?= htmlspecialchars($c['rut']) ?>">
                                 <button class="btn btn-danger btn-sm">Rechazar</button>
@@ -201,6 +210,7 @@ include 'navbar.php';
                                 Editar
                             </button>
                             <form method="post" class="d-inline">
+                                <?php echo csrf_field(); ?>
                                 <input type="hidden" name="accion" value="eliminar">
                                 <input type="hidden" name="rut" value="<?= htmlspecialchars($c['rut']) ?>">
                                 <button class="btn btn-sm btn-outline-danger" 
@@ -215,13 +225,14 @@ include 'navbar.php';
                             <div class="p-3">
                                 <h6>Editar cliente: <?= htmlspecialchars($c['nombre']) ?></h6>
                                 <form method="post" class="row g-2">
+                                    <?php echo csrf_field(); ?>
                                     <input type="hidden" name="accion" value="editar">
                                     <input type="hidden" name="rut" value="<?= htmlspecialchars($c['rut']) ?>">
                                     <div class="col-md-3">
-                                        <input class="form-control" name="nombre" value="<?= htmlspecialchars($c['nombre']) ?>" required>
+                                        <input class="form-control" name="nombre" value="<?= htmlspecialchars($c['nombre']) ?>" required minlength="2">
                                     </div>
                                     <div class="col-md-3">
-                                        <input class="form-control" name="email" value="<?= htmlspecialchars($c['email']) ?>" required>
+                                        <input type="email" class="form-control" name="email" value="<?= htmlspecialchars($c['email']) ?>" required>
                                     </div>
                                     <div class="col-md-3">
                                         <select name="estado" class="form-control" required>

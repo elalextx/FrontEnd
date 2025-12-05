@@ -2,6 +2,8 @@
 require_once 'graphql.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 
+include 'header.php';
+
 $usuario = $_SESSION['usuario'] ?? null;
 if (!$usuario || ($usuario['perfilTipo'] ?? '') !== 'Empleado') {
     header('Location: login_empleado.php');
@@ -24,10 +26,12 @@ function timestampToDateTime($timestamp) {
 }
 
 if (isset($_POST['generar_csv'])) {
-    $start = $_POST['start_date'] ?? '';
-    $end = $_POST['end_date'] ?? '';
-    $producto_nombre = trim($_POST['producto_nombre'] ?? '');
-    $cliente_nombre = trim($_POST['cliente_nombre'] ?? '');
+    validate_csrf();
+    
+    $start = sanitizar_input($_POST['start_date'] ?? '');
+    $end = sanitizar_input($_POST['end_date'] ?? '');
+    $producto_nombre = sanitizar_input($_POST['producto_nombre'] ?? '');
+    $cliente_nombre = sanitizar_input($_POST['cliente_nombre'] ?? '');
     
     if (!$start) {
         $error = 'Seleccione fecha de inicio para generar el CSV';
@@ -42,7 +46,19 @@ if (isset($_POST['generar_csv'])) {
         if ($inicio > $fin) {
             $error = 'La fecha de inicio no puede ser mayor a la fecha fin';
         } else {
-            $q = 'query { getCompras { id clienteId total fecha items { productoId cantidad } } }';
+            $q = 'query { getCompras { 
+                id 
+                clienteId 
+                total 
+                totalPagado 
+                descuentoAplicado 
+                cuponUsado 
+                fecha 
+                items { 
+                    productoId 
+                    cantidad 
+                } 
+            } }';
             $r = graphql_request($q, [], true);
             
             if (!empty($r['errors'])) {
@@ -130,9 +146,11 @@ if (isset($_POST['generar_csv'])) {
                     fputcsv($output, ['Fecha generación:', date('Y-m-d H:i:s')]);
                     fputcsv($output, []); 
                     
-                    fputcsv($output, ['ID Pedido', 'Cliente', 'Producto', 'Cantidad', 'Precio Unitario', 'Subtotal', 'Fecha', 'Total Pedido']);
+                    fputcsv($output, ['ID Pedido', 'Cliente', 'Producto', 'Cantidad', 'Precio Unitario', 'Subtotal', 'Descuento', 'Cupón', 'Total Neto', 'Fecha', 'Total Bruto']);
                     
-                    $total_general = 0;
+                    $total_bruto = 0;
+                    $total_neto = 0;
+                    $total_descuento = 0;
                     
                     foreach ($filtradas as $item) {
                         $c = $item['compra'];
@@ -140,6 +158,11 @@ if (isset($_POST['generar_csv'])) {
                         
                         $cliente_info = $clientes_map[$c['clienteId']] ?? null;
                         $cliente_nombre_csv = $cliente_info ? $cliente_info['nombre'] : $c['clienteId'];
+                        
+                        $descuento = $c['descuentoAplicado'] ?? 0;
+                        $cupon = $c['cuponUsado'] ?? '';
+                        $total_bruto_compra = $c['total'] ?? 0;
+                        $total_neto_compra = $c['totalPagado'] ?? $total_bruto_compra;
                         
                         foreach ($c['items'] as $item_carrito) {
                             $prod_info = $productos_map[$item_carrito['productoId']] ?? null;
@@ -155,16 +178,24 @@ if (isset($_POST['generar_csv'])) {
                                 intval($item_carrito['cantidad']),
                                 '$' . number_format($precio_unitario, 0, ',', '.'),
                                 '$' . number_format($subtotal, 0, ',', '.'),
+                                '$' . number_format($descuento, 0, ',', '.'),
+                                $cupon,
+                                '$' . number_format($total_neto_compra, 0, ',', '.'),
                                 $fecha_compra->format('Y-m-d H:i:s'),
-                                '$' . number_format($c['total'], 0, ',', '.')
+                                '$' . number_format($total_bruto_compra, 0, ',', '.')
                             ]);
                         }
                         
-                        $total_general += intval($c['total']);
+                        $total_bruto += $total_bruto_compra;
+                        $total_neto += $total_neto_compra;
+                        $total_descuento += $descuento;
                     }
                     
                     fputcsv($output, []);
-                    fputcsv($output, ['TOTAL GENERAL:', '', '', '', '', '', '', '$' . number_format($total_general, 0, ',', '.')]);
+                    fputcsv($output, ['RESUMEN GENERAL:', '', '', '', '', '', '', '', '', '', '']);
+                    fputcsv($output, ['Total Bruto:', '', '', '', '', '', '', '', '', '', '$' . number_format($total_bruto, 0, ',', '.')]);
+                    fputcsv($output, ['Total Descuentos:', '', '', '', '', '', '', '', '', '', '-$' . number_format($total_descuento, 0, ',', '.')]);
+                    fputcsv($output, ['Total Neto:', '', '', '', '', '', '', '', '', '', '$' . number_format($total_neto, 0, ',', '.')]);
                     
                     fclose($output);
                     exit; 
@@ -175,10 +206,12 @@ if (isset($_POST['generar_csv'])) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ver_reporte'])) {
-    $start = $_POST['start_date'] ?? '';
-    $end = $_POST['end_date'] ?? '';
-    $producto_nombre = trim($_POST['producto_nombre'] ?? '');
-    $cliente_nombre = trim($_POST['cliente_nombre'] ?? '');
+    validate_csrf();
+    
+    $start = sanitizar_input($_POST['start_date'] ?? '');
+    $end = sanitizar_input($_POST['end_date'] ?? '');
+    $producto_nombre = sanitizar_input($_POST['producto_nombre'] ?? '');
+    $cliente_nombre = sanitizar_input($_POST['cliente_nombre'] ?? '');
     
     if (!$start) {
         $error = 'Seleccione fecha de inicio';
@@ -193,7 +226,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ver_reporte'])) {
         if ($inicio > $fin) {
             $error = 'La fecha de inicio no puede ser mayor a la fecha fin';
         } else {
-            $q = 'query { getCompras { id clienteId total fecha items { productoId cantidad } } }';
+            $q = 'query { getCompras { 
+                id 
+                clienteId 
+                total 
+                totalPagado 
+                descuentoAplicado 
+                cuponUsado 
+                fecha 
+                items { 
+                    productoId 
+                    cantidad 
+                } 
+            } }';
             $r = graphql_request($q, [], true);
             
             if (!empty($r['errors'])) {
@@ -218,7 +263,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ver_reporte'])) {
                 }
                 
                 $filtradas = [];
-                $totalVentas = 0;
+                $totalVentasBruto = 0;
+                $totalVentasNeto = 0;
+                $totalDescuentos = 0;
                 
                 foreach ($compras as $c) {
                     $fecha_compra = null;
@@ -263,14 +310,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ver_reporte'])) {
                         'compra' => $c,
                         'fecha_datetime' => $fecha_compra
                     ];
-                    $totalVentas += intval($c['total'] ?? 0);
+                    
+                    $totalVentasBruto += intval($c['total'] ?? 0);
+                    $totalVentasNeto += intval($c['totalPagado'] ?? $c['total'] ?? 0);
+                    $totalDescuentos += intval($c['descuentoAplicado'] ?? 0);
                 }
                 
                 $resultado = [
                     'inicio' => $inicio->format('Y-m-d'),
                     'fin' => $fin->format('Y-m-d'),
                     'count' => count($filtradas),
-                    'total' => $totalVentas,
+                    'total_bruto' => $totalVentasBruto,
+                    'total_neto' => $totalVentasNeto,
+                    'total_descuentos' => $totalDescuentos,
                     'items' => $filtradas,
                     'productos_map' => $productos_map,
                     'clientes_map' => $clientes_map,
@@ -284,7 +336,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ver_reporte'])) {
     }
 }
 
-include 'header.php';
 include 'navbar.php';
 ?>
 <div class="container mt-5">
@@ -293,6 +344,7 @@ include 'navbar.php';
     <?php if ($error): ?><div class="alert alert-danger"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 
     <form method="post" class="row g-3 mb-4">
+        <?php echo csrf_field(); ?>
         <div class="col-md-3">
             <label class="form-label">Fecha inicio</label>
             <input type="date" name="start_date" class="form-control" value="<?= htmlspecialchars($_POST['start_date'] ?? '') ?>" required>
@@ -323,7 +375,9 @@ include 'navbar.php';
             <h5>Reporte desde <?= htmlspecialchars($resultado['inicio']) ?> hasta <?= htmlspecialchars($resultado['fin']) ?></h5>
             <p>
                 Ventas: <strong><?= $resultado['count'] ?></strong> | 
-                Total recaudado: <strong>$<?= number_format($resultado['total'], 0, ',', '.') ?></strong>
+                Total bruto: <strong>$<?= number_format($resultado['total_bruto'], 0, ',', '.') ?></strong> |
+                Descuentos: <strong class="text-success">-$<?= number_format($resultado['total_descuentos'], 0, ',', '.') ?></strong> |
+                Total neto: <strong class="text-primary">$<?= number_format($resultado['total_neto'], 0, ',', '.') ?></strong>
                 <?php if ($resultado['filtros']['producto_nombre']): ?>
                     | Producto: <strong><?= htmlspecialchars($resultado['filtros']['producto_nombre']) ?></strong>
                 <?php endif; ?>
@@ -342,6 +396,8 @@ include 'navbar.php';
                 $fecha_compra = $item['fecha_datetime'];
                 $cliente_info = $resultado['clientes_map'][$c['clienteId']] ?? null;
                 $cliente_nombre_display = $cliente_info ? $cliente_info['nombre'] : $c['clienteId'];
+                $tieneDescuento = isset($c['descuentoAplicado']) && $c['descuentoAplicado'] > 0;
+                $totalPagado = $c['totalPagado'] ?? $c['total'] ?? 0;
             ?>
                 <div class="card mb-2">
                     <div class="card-body">
@@ -350,6 +406,10 @@ include 'navbar.php';
                                 <strong>Pedido:</strong> <?= htmlspecialchars($c['id']) ?><br>
                                 <strong>Cliente:</strong> <?= htmlspecialchars($cliente_nombre_display) ?><br>
                                 <strong>Fecha:</strong> <?= $fecha_compra->format('Y-m-d H:i:s') ?>
+                                
+                                <?php if ($tieneDescuento && isset($c['cuponUsado'])): ?>
+                                    <br><strong>Cupón:</strong> <span class="badge bg-success"><?= htmlspecialchars($c['cuponUsado']) ?></span>
+                                <?php endif; ?>
                                 
                                 <div class="mt-2">
                                     <strong>Productos:</strong>
@@ -374,8 +434,16 @@ include 'navbar.php';
                                 </div>
                             </div>
                             <div class="text-end">
-                                <strong>Total:</strong><br>
-                                <span class="fs-4">$<?= number_format($c['total'] ?? 0, 0, ',', '.') ?></span>
+                                <strong>Total bruto:</strong><br>
+                                <span>$<?= number_format($c['total'] ?? 0, 0, ',', '.') ?></span>
+                                
+                                <?php if ($tieneDescuento): ?>
+                                    <br><strong class="text-success">Descuento:</strong><br>
+                                    <span class="text-success">-$<?= number_format($c['descuentoAplicado'], 0, ',', '.') ?></span>
+                                <?php endif; ?>
+                                
+                                <br><strong>Total neto:</strong><br>
+                                <span class="fs-4 text-primary">$<?= number_format($totalPagado, 0, ',', '.') ?></span>
                             </div>
                         </div>
                     </div>

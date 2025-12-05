@@ -2,6 +2,8 @@
 require_once 'graphql.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 
+include 'header.php';
+
 $mensaje = '';
 $error = '';
 
@@ -11,11 +13,15 @@ if (isset($_SESSION['cliente'])) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = trim($_POST['email'] ?? '');
-    $pass = trim($_POST['pass'] ?? '');
+    validate_csrf();
+    
+    $email = validar_email($_POST['email'] ?? '');
+    $pass = sanitizar_input($_POST['pass'] ?? '');
 
-    if (!$email || !$pass) {
-        $error = 'Email y contraseña son requeridos';
+    if (!$email) {
+        $error = 'Email inválido';
+    } elseif (!$pass || strlen($pass) < 1) {
+        $error = 'Contraseña requerida';
     } else {
         $mutation = '
             mutation Login($email: String!, $pass: String!) {
@@ -78,7 +84,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-include 'header.php';
 include 'navbar.php';
 ?>
 <div class="container mt-5">
@@ -88,12 +93,13 @@ include 'navbar.php';
             <?php if ($mensaje): ?><div class="alert alert-success"><?= htmlspecialchars($mensaje) ?></div><?php endif; ?>
             <?php if ($error): ?><div class="alert alert-danger"><?= htmlspecialchars($error) ?></div><?php endif; ?>
             <form method="post">
+                <?php echo csrf_field(); ?>
                 <div class="mb-3">
-                    <label>Email</label>
+                    <label class="form-label">Email</label>
                     <input type="email" name="email" class="form-control" required>
                 </div>
                 <div class="mb-3">
-                    <label>Contraseña</label>
+                    <label class="form-label">Contraseña</label>
                     <input type="password" name="pass" class="form-control" required>
                 </div>
                 <button class="btn btn-primary">Ingresar</button>

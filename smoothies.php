@@ -2,7 +2,9 @@
 require_once 'graphql.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 
-if (isset($_SESSION['usuario']) && ($_SESSION['usuario']['perfilTipo'] ?? '') === 'Empleado') {
+$isEmpleado = isset($_SESSION['usuario']) && ($_SESSION['usuario']['perfilTipo'] ?? '') === 'Empleado';
+
+if ($isEmpleado) {
     header('Location: admin.php');
     exit;
 }
@@ -73,10 +75,10 @@ include 'navbar.php';
             <div class="col-md-4 mb-4">
                 <div class="card h-100">
                     <?php if ($tiene_imagen): ?>
-                        <img src="<?= htmlspecialchars($producto['imagen']) ?>" 
+                        <img src="<?= htmlspecialchars($producto['imagen'], ENT_QUOTES, 'UTF-8') ?>" 
                              class="card-img-top" 
                              style="height:220px; object-fit:cover;"
-                             alt="<?= htmlspecialchars($producto['nombre']) ?>"
+                             alt="<?= htmlspecialchars($producto['nombre'], ENT_QUOTES, 'UTF-8') ?>"
                              onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1570197788417-0e82375c9371?w=400'">
                     <?php else: ?>
                         <div class="image-placeholder placeholder-smoothies">
@@ -85,24 +87,38 @@ include 'navbar.php';
                     <?php endif; ?>
                     
                     <div class="card-body">
-                        <h5 class="card-title"><?= htmlspecialchars($producto['nombre']) ?></h5>
+                        <h5 class="card-title"><?= htmlspecialchars($producto['nombre'], ENT_QUOTES, 'UTF-8') ?></h5>
                         <?= $stockBadge ?>
                         <p class="mt-2 text-success fw-bold">$<?= number_format($producto['precio'], 0, ',', '.') ?></p>
 
                         <?php if ($producto['stock'] > 0): ?>
-                            <form method="post" action="<?= $cliente ? 'carrito.php' : 'login_cliente.php' ?>">
-                                <?php if ($cliente): ?>
-                                    <input type="hidden" name="action" value="add">
-                                    <input type="hidden" name="productoId" value="<?= htmlspecialchars($producto['id']) ?>">
-                                <?php endif; ?>
+                            <?php if ($isEmpleado): ?>
                                 <div class="input-group mb-2">
-                                    <input type="number" name="cantidad" value="1" min="1" max="<?= $maxCompra ?>" 
-                                           class="form-control" style="max-width:80px;"
-                                           onchange="validarStock(this, <?= $maxCompra ?>)">
-                                    <button class="btn btn-primary" type="submit">Agregar al carrito</button>
+                                    <input type="number" value="1" min="1" max="<?= $maxCompra ?>" 
+                                           class="form-control" style="max-width:80px;" disabled>
+                                    <button class="btn btn-secondary" disabled>No disponible</button>
                                 </div>
                                 <small class="text-muted">Máximo: <?= $maxCompra ?> unidades</small>
-                            </form>
+                            <?php else: ?>
+                                <form method="post" action="<?= $cliente ? 'carrito.php' : 'login_cliente.php' ?>">
+                                    <?php if ($cliente): ?>
+                                        <?php echo csrf_field(); ?>
+                                        <input type="hidden" name="action" value="add">
+                                        <input type="hidden" name="productoId" value="<?= htmlspecialchars($producto['id'], ENT_QUOTES, 'UTF-8') ?>">
+                                    <?php else: ?>
+                                        <input type="hidden" name="redirect_product_id" value="<?= htmlspecialchars($producto['id'], ENT_QUOTES, 'UTF-8') ?>">
+                                        <input type="hidden" name="redirect_cantidad" id="cantidad_<?= htmlspecialchars($producto['id'], ENT_QUOTES, 'UTF-8') ?>" value="1">
+                                    <?php endif; ?>
+                                    <div class="input-group mb-2">
+                                        <input type="number" name="cantidad" value="1" min="1" max="<?= $maxCompra ?>" 
+                                               class="form-control" style="max-width:80px;"
+                                               onchange="validarStock(this, <?= $maxCompra ?>)"
+                                               <?php if (!$cliente): ?>id="input_cantidad_<?= htmlspecialchars($producto['id'], ENT_QUOTES, 'UTF-8') ?>"<?php endif; ?>>
+                                        <button class="btn btn-primary" type="submit">Agregar al carrito</button>
+                                    </div>
+                                    <small class="text-muted">Máximo: <?= $maxCompra ?> unidades</small>
+                                </form>
+                            <?php endif; ?>
                         <?php else: ?>
                             <button class="btn btn-secondary" disabled>Agotado</button>
                         <?php endif; ?>
@@ -135,6 +151,16 @@ document.addEventListener('DOMContentLoaded', function() {
         form.addEventListener('submit', function(e) {
             const cantidadInput = this.querySelector('input[name="cantidad"]');
             const productoIdInput = this.querySelector('input[name="productoId"]');
+            const redirectCantidadInput = this.querySelector('input[name="redirect_cantidad"]');
+            
+            if (!productoIdInput && redirectCantidadInput && cantidadInput) {
+                const productoId = cantidadInput.id.replace('input_cantidad_', '');
+                redirectCantidadInput.value = cantidadInput.value;
+                const cantidad = cantidadInput.value;
+                window.location.href = `login_cliente.php?product_id=${productoId}&cantidad=${cantidad}`;
+                e.preventDefault();
+                return false;
+            }
             
             if (cantidadInput && productoIdInput) {
                 const cantidad = parseInt(cantidadInput.value);

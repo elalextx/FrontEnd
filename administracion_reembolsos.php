@@ -2,6 +2,8 @@
 require_once 'graphql.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 
+include 'header.php';
+
 $usuario = $_SESSION['usuario'] ?? null;
 if (!$usuario || ($usuario['perfilTipo'] ?? '') !== 'Empleado') {
     header('Location: login_empleado.php');
@@ -9,9 +11,13 @@ if (!$usuario || ($usuario['perfilTipo'] ?? '') !== 'Empleado') {
 }
 
 $mensaje = $error = '';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'atender') {
-    $id = $_POST['id'] ?? '';
-    $estado = $_POST['estado'] ?? '';
+    validate_csrf();
+    
+    $id = sanitizar_input($_POST['id'] ?? '');
+    $estado = sanitizar_input($_POST['estado'] ?? '');
+    
     if ($id && $estado) {
         $m = 'mutation($id:ID!, $estado:String!) { atenderReembolso(id:$id, estado:$estado) { id compraId motivo estado } }';
         $r = graphql_request($m, ['id'=>$id,'estado'=>$estado], true);
@@ -24,7 +30,6 @@ $q = 'query { getReembolsos { id compraId motivo estado } }';
 $res = graphql_request($q, [], true);
 $reembolsos = $res['data']['getReembolsos'] ?? [];
 
-include 'header.php';
 include 'navbar.php';
 ?>
 <div class="container mt-5">
@@ -44,6 +49,7 @@ include 'navbar.php';
                     <p><strong>Estado:</strong> <?= htmlspecialchars($r['estado']) ?></p>
 
                     <form method="post" class="d-flex gap-2">
+                        <?php echo csrf_field(); ?>
                         <input type="hidden" name="accion" value="atender">
                         <input type="hidden" name="id" value="<?= htmlspecialchars($r['id']) ?>">
                         <select name="estado" class="form-select" style="max-width:200px;">

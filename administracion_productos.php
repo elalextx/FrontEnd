@@ -2,6 +2,8 @@
 require_once 'graphql.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 
+include 'header.php';
+
 $usuario = $_SESSION['usuario'] ?? null;
 if (!$usuario || ($usuario['perfilTipo'] ?? '') !== 'Empleado') {
     header('Location: login_empleado.php');
@@ -9,13 +11,16 @@ if (!$usuario || ($usuario['perfilTipo'] ?? '') !== 'Empleado') {
 }
 
 $mensaje = $error = '';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add') {
-    $nombre = trim($_POST['nombre'] ?? '');
+    validate_csrf();
+    
+    $nombre = sanitizar_input($_POST['nombre'] ?? '');
     $precio = intval($_POST['precio'] ?? 0);
     $stock = intval($_POST['stock'] ?? 0);
-    $categoria = trim($_POST['categoria'] ?? '');
-    $descripcion = trim($_POST['descripcion'] ?? '');
-    $imagen = trim($_POST['imagen'] ?? '');
+    $categoria = sanitizar_input($_POST['categoria'] ?? '');
+    $descripcion = sanitizar_input($_POST['descripcion'] ?? '');
+    $imagen = sanitizar_input($_POST['imagen'] ?? '');
 
     if ($nombre && $precio >= 0 && $categoria) {
         $m = 'mutation($nombre:String!, $precio:Int!, $stock:Int!, $categoria:String!, $descripcion:String, $imagen:String) { addProducto(nombre:$nombre, precio:$precio, stock:$stock, categoria:$categoria, descripcion:$descripcion, imagen:$imagen) { id nombre } }';
@@ -26,13 +31,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'edit') {
-    $id = $_POST['id'] ?? '';
-    $nombre = trim($_POST['nombre'] ?? '');
+    validate_csrf();
+    
+    $id = sanitizar_input($_POST['id'] ?? '');
+    $nombre = sanitizar_input($_POST['nombre'] ?? '');
     $precio = intval($_POST['precio'] ?? 0);
     $stock = intval($_POST['stock'] ?? 0);
-    $categoria = trim($_POST['categoria'] ?? '');
-    $descripcion = trim($_POST['descripcion'] ?? '');
-    $imagen = trim($_POST['imagen'] ?? '');
+    $categoria = sanitizar_input($_POST['categoria'] ?? '');
+    $descripcion = sanitizar_input($_POST['descripcion'] ?? '');
+    $imagen = sanitizar_input($_POST['imagen'] ?? '');
 
     if ($id && $nombre && $categoria) {
         $m = 'mutation($id:ID!, $nombre:String!, $precio:Int!, $stock:Int!, $categoria:String!, $descripcion:String, $imagen:String) { updateProducto(id:$id, nombre:$nombre, precio:$precio, stock:$stock, categoria:$categoria, descripcion:$descripcion, imagen:$imagen) { id nombre } }';
@@ -43,7 +50,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete') {
-    $id = $_POST['id'] ?? '';
+    validate_csrf();
+    
+    $id = sanitizar_input($_POST['id'] ?? '');
     if ($id) {
         $m = 'mutation($id:ID!) { deleteProducto(id:$id) { status message } }';
         $r = graphql_request($m, ['id'=>$id], true);
@@ -56,7 +65,6 @@ $q = 'query { getProductos { id nombre precio stock categoria descripcion imagen
 $res = graphql_request($q, [], true);
 $productos = $res['data']['getProductos'] ?? [];
 
-include 'header.php';
 include 'navbar.php';
 ?>
 <div class="container mt-5">
@@ -68,10 +76,11 @@ include 'navbar.php';
     <div class="card p-3 mb-4">
         <h5>Agregar producto</h5>
         <form method="post">
+            <?php echo csrf_field(); ?>
             <input type="hidden" name="action" value="add">
             <div class="row g-2">
                 <div class="col-md-3">
-                    <input class="form-control" name="nombre" placeholder="Nombre" required>
+                    <input class="form-control" name="nombre" placeholder="Nombre" required minlength="2">
                 </div>
                 <div class="col-md-2">
                     <input type="number" class="form-control" name="precio" placeholder="Precio" required min="0">
@@ -126,6 +135,7 @@ include 'navbar.php';
                             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#edit-<?= htmlspecialchars($p['id']) ?>">Editar</button>
 
                             <form method="post" style="display:inline;">
+                                <?php echo csrf_field(); ?>
                                 <input type="hidden" name="action" value="delete">
                                 <input type="hidden" name="id" value="<?= htmlspecialchars($p['id']) ?>">
                                 <button class="btn btn-sm btn-danger" onclick="return confirm('¿Eliminar producto?');">Eliminar</button>
@@ -133,10 +143,11 @@ include 'navbar.php';
 
                             <div class="collapse mt-2" id="edit-<?= htmlspecialchars($p['id']) ?>">
                                 <form method="post" class="row g-2">
+                                    <?php echo csrf_field(); ?>
                                     <input type="hidden" name="action" value="edit">
                                     <input type="hidden" name="id" value="<?= htmlspecialchars($p['id']) ?>">
                                     <div class="col-md-3">
-                                        <input class="form-control" name="nombre" value="<?= htmlspecialchars($p['nombre']) ?>" required>
+                                        <input class="form-control" name="nombre" value="<?= htmlspecialchars($p['nombre']) ?>" required minlength="2">
                                     </div>
                                     <div class="col-md-2">
                                         <input type="number" class="form-control" name="precio" value="<?= intval($p['precio']) ?>" required min="0">

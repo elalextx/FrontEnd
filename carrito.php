@@ -2,6 +2,8 @@
 require_once 'graphql.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 
+include 'header.php';
+
 if (isset($_SESSION['usuario']) && ($_SESSION['usuario']['perfilTipo'] ?? '') === 'Empleado') {
     header('Location: admin.php');
     exit;
@@ -18,11 +20,19 @@ $clienteNombre = $cliente['nombre'];
 
 $mensaje = '';
 $error = '';
+$errorCupon = '';
+$mensajeCupon = '';
+$cuponAplicado = null;
+$descuento = 0;
+$totalConDescuento = 0;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? '';
+    validate_csrf();
+    
+    $action = sanitizar_input($_POST['action'] ?? '');
+    
     if ($action === 'add') {
-        $productoId = $_POST['productoId'] ?? '';
+        $productoId = sanitizar_input($_POST['productoId'] ?? '');
         $cantidad = intval($_POST['cantidad'] ?? 1);
 
         if ($productoId && $cantidad > 0) {
@@ -47,6 +57,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 cantidad 
                             } 
                             total 
+                            cuponAplicado 
+                            descuento 
+                            totalConDescuento 
                         } 
                     }';
                     $rAdd = graphql_request($mAdd, [
@@ -65,12 +78,85 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $error = 'Datos del producto inválidos';
         }
-    } elseif ($action === 'confirmar') {
+    } 
+    elseif ($action === 'aplicar_cupon') {
+        $codigo = strtoupper(sanitizar_input($_POST['codigo_cupon'] ?? ''));
+        
+        if ($codigo) {
+            $qValidar = 'query($codigo:String!, $clienteId:String!) { 
+                validarCupon(codigo:$codigo, clienteId:$clienteId) { 
+                    valido 
+                    mensaje 
+                    descuento 
+                } 
+            }';
+            
+            $rValidar = graphql_request($qValidar, [
+                'codigo' => $codigo,
+                'clienteId' => $clienteRut
+            ], false);
+            
+            if (!empty($rValidar['errors'])) {
+                $errorCupon = $rValidar['errors'][0]['message'] ?? 'Error validando cupón';
+            } else {
+                $validacion = $rValidar['data']['validarCupon'] ?? null;
+                
+                if ($validacion && $validacion['valido']) {
+                    $mAplicar = 'mutation($codigo:String!, $clienteId:String!) { 
+                        aplicarCupon(codigo:$codigo, clienteId:$clienteId) { 
+                            id 
+                            cuponAplicado 
+                            descuento 
+                            totalConDescuento 
+                        } 
+                    }';
+                    
+                    $rAplicar = graphql_request($mAplicar, [
+                        'codigo' => $codigo,
+                        'clienteId' => $clienteRut
+                    ], false);
+                    
+                    if (!empty($rAplicar['errors'])) {
+                        $errorCupon = $rAplicar['errors'][0]['message'] ?? 'Error aplicando cupón';
+                    } else {
+                        $mensajeCupon = $validacion['mensaje'] . ' - Descuento: $' . number_format($validacion['descuento'], 0, ',', '.');
+                        $mensaje = '¡Cupón aplicado correctamente!';
+                    }
+                } else {
+                    $errorCupon = $validacion['mensaje'] ?? 'Cupón no válido';
+                }
+            }
+        } else {
+            $errorCupon = 'Ingresa un código de cupón';
+        }
+    }
+    elseif ($action === 'remover_cupon') {
+        $mRemover = 'mutation($clienteId:String!) { 
+            removerCupon(clienteId:$clienteId) { 
+                id 
+                cuponAplicado 
+                descuento 
+                totalConDescuento 
+            } 
+        }';
+        
+        $rRemover = graphql_request($mRemover, ['clienteId' => $clienteRut], false);
+        
+        if (!empty($rRemover['errors'])) {
+            $error = $rRemover['errors'][0]['message'] ?? 'Error removiendo cupón';
+        } else {
+            $mensaje = 'Cupón removido correctamente';
+        }
+    }
+    elseif ($action === 'confirmar') {
         $mConf = 'mutation($cid:String!) { 
             confirmarCompra(clienteId:$cid){ 
                 id 
                 clienteId 
                 total 
+                totalPagado 
+                descuentoAplicado 
+                cuponUsado 
                 fecha 
                 items { 
                     productoId 
@@ -96,6 +182,9 @@ $q = 'query($cid:String!) {
             cantidad 
         } 
         total 
+        cuponAplicado 
+        descuento 
+        totalConDescuento 
     } 
 }';
 $r = graphql_request($q, ['cid'=>$clienteRut], false);
@@ -108,6 +197,7 @@ $prodMap = [];
 foreach ($productos as $p) $prodMap[$p['id']] = $p;
 
 $itemsAgrupados = [];
+$suma = 0;
 if ($carrito && !empty($carrito['items'])) {
     foreach ($carrito['items'] as $item) {
         $productoId = $item['productoId'];
@@ -119,18 +209,41 @@ if ($carrito && !empty($carrito['items'])) {
         }
         $itemsAgrupados[$productoId]['cantidad'] += intval($item['cantidad']);
     }
+    
+    foreach ($itemsAgrupados as $itemData) {
+        $p = $itemData['producto'];
+        $cantidad = $itemData['cantidad'];
+        $precio = $p ? intval($p['precio']) : 0;
+        $suma += $precio * $cantidad;
+    }
 }
 
-include 'header.php';
+if ($carrito) {
+    $cuponAplicado = $carrito['cuponAplicado'] ?? null;
+    $descuento = $carrito['descuento'] ?? 0;
+    $totalConDescuento = $carrito['totalConDescuento'] ?? $suma;
+}
+
 include 'navbar.php';
 ?>
+
 <div class="container mt-5">
     <h2>Carrito de <?= htmlspecialchars($clienteNombre) ?></h2>
-    <?php if ($mensaje): ?><div class="alert alert-success"><?= htmlspecialchars($mensaje) ?></div><?php endif; ?>
-    <?php if ($error): ?><div class="alert alert-danger"><?= htmlspecialchars($error) ?></div><?php endif; ?>
+    
+    <?php if ($mensaje): ?>
+        <div class="alert alert-success"><?= htmlspecialchars($mensaje) ?></div>
+    <?php endif; ?>
+    
+    <?php if ($error): ?>
+        <div class="alert alert-danger"><?= htmlspecialchars($error) ?></div>
+    <?php endif; ?>
 
     <?php if (empty($itemsAgrupados)): ?>
         <div class="alert alert-info">Tu carrito está vacío.</div>
+        <div class="text-center mt-4">
+            <a href="jugos.php" class="btn btn-primary me-2">Ir a Jugos</a>
+            <a href="smoothies.php" class="btn btn-primary">Ir a Smoothies</a>
+        </div>
     <?php else: ?>
         <table class="table table-striped">
             <thead>
@@ -143,7 +256,8 @@ include 'navbar.php';
                 </tr>
             </thead>
             <tbody>
-                <?php $suma = 0;
+                <?php 
+                $suma = 0;
                 foreach ($itemsAgrupados as $productoId => $itemData):
                     $p = $itemData['producto'];
                     $cantidad = $itemData['cantidad'];
@@ -157,7 +271,10 @@ include 'navbar.php';
                     <tr class="<?= $filaClass ?>">
                         <td>
                             <?php if ($p && isset($p['imagen'])): ?>
-                                <img src="<?= htmlspecialchars($p['imagen']) ?>" alt="<?= htmlspecialchars($p['nombre']) ?>" style="width: 50px; height: 50px; object-fit: cover;" class="me-2">
+                                <img src="<?= htmlspecialchars($p['imagen']) ?>" 
+                                     alt="<?= htmlspecialchars($p['nombre']) ?>" 
+                                     style="width: 50px; height: 50px; object-fit: cover;" 
+                                     class="me-2">
                             <?php endif; ?>
                             <?= htmlspecialchars($p['nombre'] ?? 'Producto no disponible') ?>
                             <?php if (!$stockSuficiente): ?>
@@ -181,12 +298,85 @@ include 'navbar.php';
             </tbody>
             <tfoot>
                 <tr>
-                    <td colspan="3" class="text-end"><strong>Total:</strong></td>
+                    <td colspan="3" class="text-end"><strong>Subtotal:</strong></td>
                     <td><strong>$<?= number_format($suma,0,',','.') ?></strong></td>
+                    <td></td>
+                </tr>
+                
+                <?php if ($cuponAplicado && $descuento > 0): ?>
+                <tr class="table-success">
+                    <td colspan="3" class="text-end">
+                        <strong>Descuento (<?= htmlspecialchars($cuponAplicado) ?>):</strong>
+                    </td>
+                    <td><strong>-$<?= number_format($descuento,0,',','.') ?></strong></td>
+                    <td></td>
+                </tr>
+                <?php endif; ?>
+                
+                <tr>
+                    <td colspan="3" class="text-end"><strong>Total a pagar:</strong></td>
+                    <td>
+                        <strong class="text-primary fs-5">
+                            $<?= number_format($totalConDescuento,0,',','.') ?>
+                        </strong>
+                    </td>
                     <td></td>
                 </tr>
             </tfoot>
         </table>
+
+        <div class="card mt-4">
+            <div class="card-body">
+                <h5>Aplicar cupón de descuento</h5>
+                
+                <?php if ($cuponAplicado): ?>
+                    <div class="alert alert-success">
+                        <strong>¡Cupón aplicado!</strong> 
+                        Código: <strong><?= htmlspecialchars($cuponAplicado) ?></strong>
+                        <br>
+                        Descuento: <strong>$<?= number_format($descuento,0,',','.') ?></strong>
+                        
+                        <form method="post" class="mt-2">
+                            <?php echo csrf_field(); ?>
+                            <input type="hidden" name="action" value="remover_cupon">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                Remover cupón
+                            </button>
+                        </form>
+                    </div>
+                <?php else: ?>
+                    <form method="post" class="row g-2">
+                        <?php echo csrf_field(); ?>
+                        <input type="hidden" name="action" value="aplicar_cupon">
+                        <div class="col-md-8">
+                            <input type="text" 
+                                   name="codigo_cupon" 
+                                   class="form-control" 
+                                   placeholder="Ingrese código de descuento"
+                                   value="<?= htmlspecialchars($_POST['codigo_cupon'] ?? '') ?>"
+                                   required pattern="[A-Z0-9]{3,20}">
+                        </div>
+                        <div class="col-md-4">
+                            <button type="submit" class="btn btn-outline-success w-100">
+                                Aplicar cupón
+                            </button>
+                        </div>
+                    </form>
+                    
+                    <?php if ($errorCupon): ?>
+                        <div class="alert alert-danger mt-3">
+                            <?= htmlspecialchars($errorCupon) ?>
+                        </div>
+                    <?php endif; ?>
+                    
+                    <?php if ($mensajeCupon): ?>
+                        <div class="alert alert-success mt-3">
+                            <?= htmlspecialchars($mensajeCupon) ?>
+                        </div>
+                    <?php endif; ?>
+                <?php endif; ?>
+            </div>
+        </div>
 
         <div class="d-flex justify-content-between align-items-center mt-4">
             <div>
@@ -208,22 +398,18 @@ include 'navbar.php';
             ?>
 
             <?php if ($todoEnStock): ?>
-                <form method="post" onsubmit="return confirm('¿Confirmar compra?');">
+                <form method="post" onsubmit="return confirm('¿Confirmar compra por $<?= number_format($totalConDescuento,0,',','.') ?>?');">
+                    <?php echo csrf_field(); ?>
                     <input type="hidden" name="action" value="confirmar">
-                    <button class="btn btn-success btn-lg" type="submit">Confirmar compra</button>
+                    <button class="btn btn-success btn-lg" type="submit">
+                        Confirmar compra
+                    </button>
                 </form>
             <?php else: ?>
                 <div class="alert alert-warning">
                     <strong>Stock insuficiente:</strong> Ajusta las cantidades o elimina productos sin stock para continuar.
                 </div>
             <?php endif; ?>
-        </div>
-    <?php endif; ?>
-    
-    <?php if ($carrito && empty($carrito['items'])): ?>
-        <div class="text-center mt-4">
-            <a href="jugos.php" class="btn btn-primary me-2">Ir a Jugos</a>
-            <a href="smoothies.php" class="btn btn-primary">Ir a Smoothies</a>
         </div>
     <?php endif; ?>
 </div>

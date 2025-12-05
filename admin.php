@@ -17,12 +17,14 @@ $clientes = graphql_request('query { getClientes { id rut nombre email estado } 
 $empleados = graphql_request('query { getEmpleados { id rut nombre email cargo } }', [], true);
 $productos = graphql_request('query { getProductos { id nombre precio stock categoria } }', [], true);
 $reemb = graphql_request('query { getReembolsos { id compraId motivo estado } }', [], true);
+$cupones = graphql_request('query { getCupones { id codigo porcentaje tipo activo } }', [], true);
 $comprasHoy = graphql_request('query { getComprasDelDia { id clienteId total fecha items { productoId cantidad } } }', [], true);
 
 $countClientes = count($clientes['data']['getClientes'] ?? []);
 $countEmpleados = count($empleados['data']['getEmpleados'] ?? []);
 $countProductos = count($productos['data']['getProductos'] ?? []);
 $countReemb = count($reemb['data']['getReembolsos'] ?? []);
+$countCupones = count($cupones['data']['getCupones'] ?? []);
 $countComprasHoy = count($comprasHoy['data']['getComprasDelDia'] ?? []);
 
 include 'header.php';
@@ -65,6 +67,15 @@ include 'navbar.php';
                 <a href="administracion_reembolsos.php" class="btn btn-sm btn-primary">Atender reembolsos</a>
             </div>
         </div>
+
+        <div class="col-md-3">
+            <div class="card p-3">
+                <h5>Cupones</h5>
+                <p class="display-6"><?= $countCupones ?></p>
+                <a href="administracion_cupones.php" class="btn btn-sm btn-primary">Gestionar cupones</a>
+            </div>
+        </div>        
+
     </div>
 
     <hr class="my-4">

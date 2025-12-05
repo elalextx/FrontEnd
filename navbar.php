@@ -7,6 +7,27 @@ $cliente = $_SESSION['cliente'] ?? null;
 $isEmpleado = !empty($usuario) && ($usuario['perfilTipo'] ?? '') === 'Empleado';
 $isCliente = !empty($cliente);
 $displayName = $usuario['nombre'] ?? $cliente['nombre'] ?? null;
+
+$cantidadCarrito = 0;
+if ($isCliente && !$isEmpleado) {
+    require_once 'graphql.php';
+    $clienteRut = $cliente['rut'];
+    $q = 'query($cid:String!) { 
+        getCarritoByCliente(clienteId:$cid){ 
+            items { 
+                cantidad 
+            } 
+        } 
+    }';
+    $r = graphql_request($q, ['cid'=>$clienteRut], false);
+    $carrito = $r['data']['getCarritoByCliente'] ?? null;
+    
+    if ($carrito && !empty($carrito['items'])) {
+        foreach ($carrito['items'] as $item) {
+            $cantidadCarrito += intval($item['cantidad']);
+        }
+    }
+}
 ?>
 <nav class="navbar navbar-expand-lg navbar-light bg-light shadow-sm">
     <div class="container-fluid">
@@ -42,7 +63,12 @@ $displayName = $usuario['nombre'] ?? $cliente['nombre'] ?? null;
                     
                     <?php if (!$isEmpleado): ?>
                     <li class="nav-item">
-                        <a class="nav-link position-relative" href="carrito.php">🛒 Carrito</a>
+                        <a class="nav-link position-relative" href="carrito.php">
+                            🛒 Carrito
+                            <?php if ($cantidadCarrito > 0): ?>
+                                <span class="carrito-badge"><?= $cantidadCarrito ?></span>
+                            <?php endif; ?>
+                        </a>
                     </li>
                     <?php endif; ?>
                     

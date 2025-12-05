@@ -2,6 +2,11 @@
 require_once 'graphql.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 
+include 'header.php';
+
+$isEmpleado = isset($_SESSION['usuario']) && ($_SESSION['usuario']['perfilTipo'] ?? '') === 'Empleado';
+$cliente = $_SESSION['cliente'] ?? null;
+
 $res = graphql_request('query { getProductos { id nombre precio stock categoria descripcion imagen } }', [], false);
 $todos_productos = $res['data']['getProductos'] ?? [];
 
@@ -13,7 +18,6 @@ $productos_destacados = array_filter($todos_productos, function($producto) {
 
 $productos_destacados = array_slice($productos_destacados, 0, 6);
 
-include 'header.php';
 include 'navbar.php';
 ?>
 <style>
@@ -107,7 +111,6 @@ include 'navbar.php';
     <?php else: ?>
         <div class="row mt-4">
             <?php 
-            $cliente = $_SESSION['cliente'] ?? null;
             foreach ($productos_destacados as $producto): 
                 if ($producto['stock'] > 5) {
                     $stockBadge = '<span class="badge bg-success">Disponible</span>';
@@ -144,19 +147,33 @@ include 'navbar.php';
                             <p class="mt-2 text-success fw-bold">$<?= number_format($producto['precio'], 0, ',', '.') ?></p>
 
                             <?php if ($producto['stock'] > 0): ?>
-                                <form method="post" action="<?= $cliente ? 'carrito.php' : 'login_cliente.php' ?>">
-                                    <?php if ($cliente): ?>
-                                        <input type="hidden" name="action" value="add">
-                                        <input type="hidden" name="productoId" value="<?= htmlspecialchars($producto['id']) ?>">
-                                    <?php endif; ?>
+                                <?php if ($isEmpleado): ?>
                                     <div class="input-group mb-2">
-                                        <input type="number" name="cantidad" value="1" min="1" max="<?= $maxCompra ?>" 
-                                               class="form-control" style="max-width:80px;"
-                                               onchange="validarStock(this, <?= $maxCompra ?>)">
-                                        <button class="btn btn-primary" type="submit">Agregar al carrito</button>
+                                        <input type="number" value="1" min="1" max="<?= $maxCompra ?>" 
+                                               class="form-control" style="max-width:80px;" disabled>
+                                        <button class="btn btn-secondary" disabled>No disponible</button>
                                     </div>
                                     <small class="text-muted">Máximo: <?= $maxCompra ?> unidades</small>
-                                </form>
+                                <?php else: ?>
+                                    <form method="post" action="<?= $cliente ? 'carrito.php' : 'login_cliente.php' ?>">
+                                        <?php if ($cliente): ?>
+                                            <?php echo csrf_field(); ?>
+                                            <input type="hidden" name="action" value="add">
+                                            <input type="hidden" name="productoId" value="<?= htmlspecialchars($producto['id']) ?>">
+                                        <?php else: ?>
+                                            <input type="hidden" name="redirect_product_id" value="<?= htmlspecialchars($producto['id']) ?>">
+                                            <input type="hidden" name="redirect_cantidad" id="cantidad_<?= htmlspecialchars($producto['id']) ?>" value="1">
+                                        <?php endif; ?>
+                                        <div class="input-group mb-2">
+                                            <input type="number" name="cantidad" value="1" min="1" max="<?= $maxCompra ?>" 
+                                                   class="form-control" style="max-width:80px;"
+                                                   onchange="validarStock(this, <?= $maxCompra ?>)"
+                                                   <?php if (!$cliente): ?>id="input_cantidad_<?= htmlspecialchars($producto['id']) ?>"<?php endif; ?>>
+                                            <button class="btn btn-primary" type="submit">Agregar al carrito</button>
+                                        </div>
+                                        <small class="text-muted">Máximo: <?= $maxCompra ?> unidades</small>
+                                    </form>
+                                <?php endif; ?>
                             <?php else: ?>
                                 <button class="btn btn-secondary" disabled>Agotado</button>
                             <?php endif; ?>
@@ -190,6 +207,16 @@ document.addEventListener('DOMContentLoaded', function() {
         form.addEventListener('submit', function(e) {
             const cantidadInput = this.querySelector('input[name="cantidad"]');
             const productoIdInput = this.querySelector('input[name="productoId"]');
+            const redirectCantidadInput = this.querySelector('input[name="redirect_cantidad"]');
+            
+            if (!productoIdInput && redirectCantidadInput && cantidadInput) {
+                const productoId = cantidadInput.id.replace('input_cantidad_', '');
+                redirectCantidadInput.value = cantidadInput.value;
+                const cantidad = cantidadInput.value;
+                window.location.href = `login_cliente.php?product_id=${productoId}&cantidad=${cantidad}`;
+                e.preventDefault();
+                return false;
+            }
             
             if (cantidadInput && productoIdInput) {
                 const cantidad = parseInt(cantidadInput.value);
