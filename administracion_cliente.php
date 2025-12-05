@@ -48,11 +48,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     $nombre = sanitizar_input($_POST['nombre'] ?? '');
     $email = validar_email($_POST['email'] ?? '');
     $estado = sanitizar_input($_POST['estado'] ?? '');
+    $direccion = sanitizar_input($_POST['direccion'] ?? '');
+    $comuna = sanitizar_input($_POST['comuna'] ?? '');
+    $provincia = sanitizar_input($_POST['provincia'] ?? '');
+    $region = sanitizar_input($_POST['region'] ?? '');
+    $fechaNacimiento = sanitizar_input($_POST['fechaNacimiento'] ?? '');
+    $sexo = sanitizar_input($_POST['sexo'] ?? '');
+    $telefono = sanitizar_input($_POST['telefono'] ?? '');
 
     if ($rut && $nombre && $email && $estado) {
-        $m = 'mutation($rut:String!, $nombre:String!, $email:String!, $estado:String!) { 
-            updateClienteCompleto(rut:$rut, nombre:$nombre, email:$email, estado:$estado) { 
+        $m = 'mutation(
+            $rut:String!, $nombre:String!, $email:String!, $estado:String!,
+            $direccion:String, $comuna:String, $provincia:String, $region:String,
+            $fechaNacimiento:String, $sexo:String, $telefono:String
+        ) { 
+            updateClienteCompleto(
+                rut:$rut, nombre:$nombre, email:$email, estado:$estado,
+                direccion:$direccion, comuna:$comuna, provincia:$provincia, region:$region,
+                fechaNacimiento:$fechaNacimiento, sexo:$sexo, telefono:$telefono
+            ) { 
                 id rut nombre email estado 
+                direccion comuna provincia region 
+                fechaNacimiento sexo telefono
             } 
         }';
         
@@ -60,7 +77,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
             'rut' => $rut,
             'nombre' => $nombre,
             'email' => $email,
-            'estado' => $estado
+            'estado' => $estado,
+            'direccion' => $direccion,
+            'comuna' => $comuna,
+            'provincia' => $provincia,
+            'region' => $region,
+            'fechaNacimiento' => $fechaNacimiento,
+            'sexo' => $sexo,
+            'telefono' => $telefono
         ], true);
         
         if (!empty($r['errors'])) {
@@ -97,7 +121,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     }
 }
 
-$q = 'query { getClientes { id rut nombre email estado } }';
+$q = 'query { getClientes { 
+    id rut nombre email estado 
+    direccion comuna provincia region 
+    fechaNacimiento sexo telefono 
+} }';
 $res = graphql_request($q, [], true);
 $clientes = $res['data']['getClientes'] ?? [];
 
@@ -181,6 +209,8 @@ include 'navbar.php';
                     <th>RUT</th>
                     <th>Nombre</th>
                     <th>Email</th>
+                    <th>Teléfono</th>
+                    <th>Dirección</th>
                     <th>Estado</th>
                     <th>Acciones</th>
                 </tr>
@@ -197,6 +227,8 @@ include 'navbar.php';
                         <td><?= htmlspecialchars($c['rut']) ?></td>
                         <td><?= htmlspecialchars($c['nombre']) ?></td>
                         <td><?= htmlspecialchars($c['email']) ?></td>
+                        <td><?= htmlspecialchars($c['telefono'] ?? 'N/A') ?></td>
+                        <td><?= htmlspecialchars($c['direccion'] ?? 'N/A') ?></td>
                         <td>
                             <span class="badge <?= $badgeClass ?>">
                                 <?= htmlspecialchars($c['estado'] ?? 'pendiente') ?>
@@ -221,27 +253,89 @@ include 'navbar.php';
                         </td>
                     </tr>
                     <tr class="collapse" id="edit-<?= htmlspecialchars($c['rut']) ?>">
-                        <td colspan="5" class="bg-light">
+                        <td colspan="7" class="bg-light">
                             <div class="p-3">
                                 <h6>Editar cliente: <?= htmlspecialchars($c['nombre']) ?></h6>
                                 <form method="post" class="row g-2">
                                     <?php echo csrf_field(); ?>
                                     <input type="hidden" name="accion" value="editar">
                                     <input type="hidden" name="rut" value="<?= htmlspecialchars($c['rut']) ?>">
-                                    <div class="col-md-3">
+                                    
+                                    <div class="col-md-4">
+                                        <label class="form-label">Nombre *</label>
                                         <input class="form-control" name="nombre" value="<?= htmlspecialchars($c['nombre']) ?>" required minlength="2">
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-4">
+                                        <label class="form-label">Email *</label>
                                         <input type="email" class="form-control" name="email" value="<?= htmlspecialchars($c['email']) ?>" required>
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-4">
+                                        <label class="form-label">Estado *</label>
                                         <select name="estado" class="form-control" required>
                                             <option value="pendiente" <?= ($c['estado'] ?? '') === 'pendiente' ? 'selected' : '' ?>>Pendiente</option>
                                             <option value="activo" <?= ($c['estado'] ?? '') === 'activo' ? 'selected' : '' ?>>Activo</option>
                                             <option value="rechazado" <?= ($c['estado'] ?? '') === 'rechazado' ? 'selected' : '' ?>>Rechazado</option>
                                         </select>
                                     </div>
-                                    <div class="col-md-3">
+                                    
+                                    <div class="col-md-6">
+                                        <label class="form-label">Dirección</label>
+                                        <input class="form-control" name="direccion" value="<?= htmlspecialchars($c['direccion'] ?? '') ?>">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Teléfono</label>
+                                        <input class="form-control" name="telefono" value="<?= htmlspecialchars($c['telefono'] ?? '') ?>">
+                                    </div>
+                                    
+                                    <div class="col-md-4">
+                                        <label class="form-label">Comuna</label>
+                                        <input class="form-control" name="comuna" value="<?= htmlspecialchars($c['comuna'] ?? '') ?>">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Provincia</label>
+                                        <input class="form-control" name="provincia" value="<?= htmlspecialchars($c['provincia'] ?? '') ?>">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Región</label>
+                                        <input class="form-control" name="region" value="<?= htmlspecialchars($c['region'] ?? '') ?>">
+                                    </div>
+                                    
+                                    <div class="col-md-4">
+                                        <label class="form-label">Fecha Nacimiento</label>
+                                        <?php 
+                                        $fechaNac = '';
+                                        if (!empty($c['fechaNacimiento'])) {
+                                            if (is_numeric($c['fechaNacimiento'])) {
+                                                $timestamp = $c['fechaNacimiento'] > 1000000000000 ? 
+                                                    intval($c['fechaNacimiento'] / 1000) : 
+                                                    intval($c['fechaNacimiento']);
+                                                $date = new DateTime();
+                                                $date->setTimestamp($timestamp);
+                                                $fechaNac = $date->format('Y-m-d');
+                                            } else {
+                                                try {
+                                                    $date = new DateTime($c['fechaNacimiento']);
+                                                    $fechaNac = $date->format('Y-m-d');
+                                                } catch (Exception $e) {
+                                                    $fechaNac = '';
+                                                }
+                                            }
+                                        }
+                                        ?>
+                                        <input type="date" class="form-control" name="fechaNacimiento" value="<?= htmlspecialchars($fechaNac) ?>">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Sexo</label>
+                                        <select name="sexo" class="form-control">
+                                            <option value="">Seleccione...</option>
+                                            <option value="Masculino" <?= ($c['sexo'] ?? '') === 'Masculino' ? 'selected' : '' ?>>Masculino</option>
+                                            <option value="Femenino" <?= ($c['sexo'] ?? '') === 'Femenino' ? 'selected' : '' ?>>Femenino</option>
+                                            <option value="Otro" <?= ($c['sexo'] ?? '') === 'Otro' ? 'selected' : '' ?>>Otro</option>
+                                            <option value="Prefiero no decir" <?= ($c['sexo'] ?? '') === 'Prefiero no decir' ? 'selected' : '' ?>>Prefiero no decir</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="col-12 mt-3">
                                         <button class="btn btn-success">Guardar cambios</button>
                                         <button type="button" class="btn btn-secondary" 
                                                 data-bs-toggle="collapse" 

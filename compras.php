@@ -45,19 +45,45 @@ $q = 'query($rut:String!) {
         items { 
             productoId 
             cantidad 
-        } 
+        }
+        clienteData {
+            nombre
+            email
+            direccion
+            comuna
+            provincia
+            region
+            telefono
+        }
     } 
 }';
 $r = graphql_request($q, ['rut'=>$clienteRut], false);
-$compras = $r['data']['getCompraByCliente'] ?? [];
+
+if (!empty($r['errors'])) {
+    $error = 'Error al obtener compras: ' . ($r['errors'][0]['message'] ?? 'Error desconocido');
+    $compras = [];
+} else {
+    $compras = $r['data']['getCompraByCliente'] ?? [];
+    if (!is_array($compras)) {
+        $compras = [];
+    }
+}
 
 $qp = 'query { getProductos { id nombre precio } }';
 $rp = graphql_request($qp, [], false);
 $productos = $rp['data']['getProductos'] ?? [];
 $prodMap = [];
-foreach ($productos as $p) $prodMap[$p['id']] = $p;
+foreach ($productos as $p) {
+    if (isset($p['id'])) {
+        $prodMap[$p['id']] = $p;
+    }
+}
 
 function formatearFecha($fecha) {
+    if (empty($fecha)) {
+        return 'Fecha no disponible';
+    }
+    
     if (is_numeric($fecha)) {
         if ($fecha > 1000000000000) {
             $fecha = $fecha / 1000;
@@ -99,14 +125,24 @@ include 'navbar.php';
         <div class="alert alert-info">No has realizado compras aún.</div>
     <?php else: ?>
         <?php foreach ($compras as $compra): 
-            $fechaFormateada = formatearFecha($compra['fecha']);
+            if (empty($compra['id'])) {
+                continue;
+            }
+            
+            $fechaFormateada = isset($compra['fecha']) ? formatearFecha($compra['fecha']) : 'Fecha no disponible';
             $tieneDescuento = isset($compra['descuentoAplicado']) && $compra['descuentoAplicado'] > 0;
             $totalMostrar = $compra['totalPagado'] ?? $compra['total'] ?? 0;
             $descuento = $compra['descuentoAplicado'] ?? 0;
             $cuponUsado = $compra['cuponUsado'] ?? null;
+            $clienteData = $compra['clienteData'] ?? null;
+            $items = $compra['items'] ?? [];
             
-            $itemsJSON = htmlspecialchars(json_encode($compra['items']));
+            $itemsJSON = htmlspecialchars(json_encode($items));
             $prodMapJSON = htmlspecialchars(json_encode($prodMap));
+            $clienteDataJSON = htmlspecialchars(json_encode(array_merge(
+                $clienteData ?: [],
+                ['rut' => $clienteRut]
+            )));
         ?>
             <div class="card mb-3">
                 <div class="card-body">
@@ -146,28 +182,34 @@ include 'navbar.php';
                             </thead>
                             <tbody>
                                 <?php 
-                                $itemsAgrupados = [];
-                                foreach ($compra['items'] as $it) {
-                                    $productoId = $it['productoId'];
-                                    if (!isset($itemsAgrupados[$productoId])) {
-                                        $itemsAgrupados[$productoId] = [
-                                            'producto' => $prodMap[$productoId] ?? null,
-                                            'cantidad' => 0
-                                        ];
+                                if (!empty($items)) {
+                                    $itemsAgrupados = [];
+                                    foreach ($items as $it) {
+                                        if (!isset($it['productoId'])) continue;
+                                        $productoId = $it['productoId'];
+                                        if (!isset($itemsAgrupados[$productoId])) {
+                                            $itemsAgrupados[$productoId] = [
+                                                'producto' => $prodMap[$productoId] ?? null,
+                                                'cantidad' => 0
+                                            ];
+                                        }
+                                        $itemsAgrupados[$productoId]['cantidad'] += intval($it['cantidad'] ?? 0);
                                     }
-                                    $itemsAgrupados[$productoId]['cantidad'] += intval($it['cantidad']);
+                                    
+                                    foreach ($itemsAgrupados as $item): 
+                                        $nombreProducto = $item['producto']['nombre'] ?? 'Producto no disponible';
+                                    ?>
+                                        <tr>
+                                            <td><?= htmlspecialchars($nombreProducto) ?></td>
+                                            <td class="text-center">
+                                                <span class="badge bg-primary rounded-pill"><?= $item['cantidad'] ?> und.</span>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach;
+                                } else {
+                                    echo '<tr><td colspan="2" class="text-center text-muted">No hay productos en esta compra</td></tr>';
                                 }
-                                
-                                foreach ($itemsAgrupados as $item): 
-                                    $nombreProducto = $item['producto']['nombre'] ?? 'Producto no disponible';
                                 ?>
-                                    <tr>
-                                        <td><?= htmlspecialchars($nombreProducto) ?></td>
-                                        <td class="text-center">
-                                            <span class="badge bg-primary rounded-pill"><?= $item['cantidad'] ?> und.</span>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
                             </tbody>
                         </table>
                     </div>
@@ -182,7 +224,8 @@ include 'navbar.php';
                                     data-total-pagado="<?= $totalMostrar ?>"
                                     data-cupon="<?= htmlspecialchars($cuponUsado ?? '') ?>"
                                     data-items='<?= $itemsJSON ?>'
-                                    data-prodmap='<?= $prodMapJSON ?>'>
+                                    data-prodmap='<?= $prodMapJSON ?>'
+                                    data-cliente='<?= $clienteDataJSON ?>'>
                                 Descargar boleta
                             </button>
                         </div>
@@ -212,12 +255,30 @@ include 'navbar.php';
 </div>
 
 <script>
-function descargarTicket(compraId, fecha, total, descuento, totalPagado, cuponUsado, items, prodMap) {
+function descargarTicket(compraId, fecha, total, descuento, totalPagado, cuponUsado, items, prodMap, clienteData) {
     if (typeof items === 'string') {
-        items = JSON.parse(items);
+        try {
+            items = JSON.parse(items);
+        } catch (e) {
+            console.error('Error parsing items:', e);
+            items = [];
+        }
     }
     if (typeof prodMap === 'string') {
-        prodMap = JSON.parse(prodMap);
+        try {
+            prodMap = JSON.parse(prodMap);
+        } catch (e) {
+            console.error('Error parsing prodMap:', e);
+            prodMap = {};
+        }
+    }
+    if (typeof clienteData === 'string') {
+        try {
+            clienteData = JSON.parse(clienteData);
+        } catch (e) {
+            console.error('Error parsing clienteData:', e);
+            clienteData = null;
+        }
     }
     
     const ticketDiv = document.createElement('div');
@@ -232,28 +293,66 @@ function descargarTicket(compraId, fecha, total, descuento, totalPagado, cuponUs
     let itemsHTML = '';
     let subtotalCalculado = 0;
     
-    items.forEach(item => {
-        const producto = prodMap[item.productoId] || { 
-            nombre: 'Producto no disponible', 
-            precio: 0 
-        };
-        const cantidad = parseInt(item.cantidad);
-        const precio = parseInt(producto.precio) || 0;
-        const subtotalItem = precio * cantidad;
-        subtotalCalculado += subtotalItem;
-        
-        itemsHTML += `
-            <div style="padding: 5px 0; border-bottom: 1px dashed #ccc;">
-                <div style="display: flex; justify-content: space-between;">
-                    <span style="font-weight: bold;">${producto.nombre}</span>
-                    <span>${cantidad} x $${precio.toLocaleString()}</span>
+    if (Array.isArray(items)) {
+        items.forEach(item => {
+            const producto = prodMap[item.productoId] || { 
+                nombre: 'Producto no disponible', 
+                precio: 0 
+            };
+            const cantidad = parseInt(item.cantidad) || 0;
+            const precio = parseInt(producto.precio) || 0;
+            const subtotalItem = precio * cantidad;
+            subtotalCalculado += subtotalItem;
+            
+            itemsHTML += `
+                <div style="padding: 5px 0; border-bottom: 1px dashed #ccc;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="font-weight: bold;">${producto.nombre}</span>
+                        <span>${cantidad} x $${precio.toLocaleString()}</span>
+                    </div>
+                    <div style="display: flex; justify-content: flex-end; font-size: 0.9em; color: #666;">
+                        Subtotal: $${subtotalItem.toLocaleString()}
+                    </div>
                 </div>
-                <div style="display: flex; justify-content: flex-end; font-size: 0.9em; color: #666;">
-                    Subtotal: $${subtotalItem.toLocaleString()}
+            `;
+        });
+    }
+    
+    let clienteHTML = '';
+    if (clienteData && clienteData.nombre) {
+        clienteHTML = `
+            <div style="margin-bottom: 15px; padding: 10px; background-color: #f8f9fa; border-radius: 5px; border: 1px solid #dee2e6;">
+                <h6 style="margin: 0 0 10px 0; color: #000; font-weight: bold;">Datos del Cliente y Despacho:</h6>
+                <div style="font-size: 0.9em;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+                        <span><strong>Cliente:</strong></span>
+                        <span>${clienteData.nombre || 'N/A'}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+                        <span><strong>RUT:</strong></span>
+                        <span>${clienteData.rut || 'N/A'}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+                        <span><strong>Email:</strong></span>
+                        <span>${clienteData.email || 'N/A'}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+                        <span><strong>Teléfono:</strong></span>
+                        <span>${clienteData.telefono || 'N/A'}</span>
+                    </div>
+                    <hr style="margin: 8px 0; border-color: #ccc;">
+                    <div style="margin-bottom: 3px;">
+                        <span><strong>Dirección:</strong></span><br>
+                        <span>${clienteData.direccion || 'N/A'}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>${clienteData.comuna || ''} ${clienteData.provincia ? ', ' + clienteData.provincia : ''}</span>
+                        <span>${clienteData.region || ''}</span>
+                    </div>
                 </div>
             </div>
         `;
-    });
+    }
     
     ticketDiv.innerHTML = `
         <div style="text-align: center; border-bottom: 2px dashed #000; margin-bottom: 15px; padding-bottom: 10px;">
@@ -279,6 +378,8 @@ function descargarTicket(compraId, fecha, total, descuento, totalPagado, cuponUs
             ` : ''}
         </div>
         
+        ${clienteHTML}
+        
         <hr style="border-top: 1px dashed #ccc; margin: 10px 0;">
         
         <div style="margin-bottom: 15px; color: #000;">
@@ -286,7 +387,7 @@ function descargarTicket(compraId, fecha, total, descuento, totalPagado, cuponUs
                 <span>Producto</span>
                 <span>Cant. x Precio</span>
             </div>
-            ${itemsHTML}
+            ${itemsHTML || '<p style="text-align: center; color: #666;">No hay productos</p>'}
         </div>
         
         <hr style="border-top: 1px dashed #ccc; margin: 10px 0;">
@@ -312,7 +413,7 @@ function descargarTicket(compraId, fecha, total, descuento, totalPagado, cuponUs
         
         <div style="text-align: center; margin-top: 20px; padding-top: 10px; border-top: 1px solid #ccc; color: #000;">
             <p style="margin: 0; font-size: 0.9em; color: #666;">¡Gracias por su compra!</p>
-            <p style="margin: 0; font-size: 0.9em; color: #666;">Vuelva pronto</p>
+            <p style="margin: 0; font-size: 0.9em; color: #666;">Datos de despacho enviados al email registrado</p>
         </div>
     `;
     
@@ -393,12 +494,13 @@ document.addEventListener('DOMContentLoaded', function() {
             descargarTicket(
                 this.getAttribute('data-compra-id'),
                 this.getAttribute('data-fecha'),
-                parseFloat(this.getAttribute('data-total')),
-                parseFloat(this.getAttribute('data-descuento')),
-                parseFloat(this.getAttribute('data-total-pagado')),
+                parseFloat(this.getAttribute('data-total') || 0),
+                parseFloat(this.getAttribute('data-descuento') || 0),
+                parseFloat(this.getAttribute('data-total-pagado') || 0),
                 this.getAttribute('data-cupon'),
                 this.getAttribute('data-items'),
-                this.getAttribute('data-prodmap')
+                this.getAttribute('data-prodmap'),
+                this.getAttribute('data-cliente')
             );
             
             setTimeout(() => {

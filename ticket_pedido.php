@@ -2,27 +2,59 @@
 require_once 'graphql.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 
-include 'header.php';
-
 $usuario = $_SESSION['usuario'] ?? null;
 if (!$usuario || ($usuario['perfilTipo'] ?? '') !== 'Empleado') {
     header('Location: login_empleado.php');
     exit;
 }
 
-$q = 'query { getComprasDelDia { id clienteId total totalPagado descuentoAplicado cuponUsado fecha items { productoId cantidad } } }';
+$q = 'query { 
+    getComprasDelDia { 
+        id 
+        clienteId 
+        total 
+        totalPagado 
+        descuentoAplicado 
+        cuponUsado 
+        fecha 
+        items { 
+            productoId 
+            cantidad 
+        }
+        clienteData {
+            nombre
+            email
+            direccion
+            comuna
+            provincia
+            region
+            telefono
+        }
+    } 
+}';
+
 $r = graphql_request($q, [], true);
 $compras = $r['data']['getComprasDelDia'] ?? [];
+
+if (!is_array($compras)) {
+    $compras = [];
+}
 
 $qprod = 'query { getProductos { id nombre precio } }';
 $rp = graphql_request($qprod, [], true);
 $productos = $rp['data']['getProductos'] ?? [];
 $map = [];
 foreach ($productos as $p) {
-    $map[$p['id']] = $p;
+    if (isset($p['id'])) {
+        $map[$p['id']] = $p;
+    }
 }
 
 function formatearFecha($fecha) {
+    if (empty($fecha)) {
+        return 'Fecha no disponible';
+    }
+    
     if (is_numeric($fecha)) {
         if ($fecha > 1000000000000) {
             $fecha = $fecha / 1000;
@@ -40,6 +72,7 @@ function formatearFecha($fecha) {
     }
 }
 
+include 'header.php';
 include 'navbar.php';
 ?>
 <style>
@@ -109,14 +142,20 @@ include 'navbar.php';
         </div>
         
         <?php foreach ($compras as $c): 
-            $fechaFormateada = formatearFecha($c['fecha']);
+            if (!$c || !isset($c['id'])) {
+                continue;
+            }
+            
+            $fechaFormateada = isset($c['fecha']) ? formatearFecha($c['fecha']) : 'Fecha no disponible';
             $tieneDescuento = isset($c['descuentoAplicado']) && $c['descuentoAplicado'] > 0;
             $totalPedido = $c['total'] ?? 0;
             $descuento = $c['descuentoAplicado'] ?? 0;
             $totalPagado = $c['totalPagado'] ?? $totalPedido;
             $cuponUsado = $c['cuponUsado'] ?? null;
+            $clienteData = $c['clienteData'] ?? null;
+            $items = $c['items'] ?? [];
         ?>
-            <div class="card mb-4 p-3 ticket-print" id="ticket-<?= htmlspecialchars($c['id'], ENT_QUOTES, 'UTF-8') ?>">
+            <div class="card mb-4 p-3 ticket-print" id="ticket-<?= htmlspecialchars($c['id']) ?>">
                 <div class="ticket-header">
                     <h4 class="mb-1 fw-bold">Natural Power</h4>
                     <p class="mb-1 text-muted small">Jugos y Smoothies Naturales</p>
@@ -128,7 +167,7 @@ include 'navbar.php';
                             <strong>Pedido #:</strong>
                         </div>
                         <div class="col-6 text-end">
-                            <?= htmlspecialchars($c['id'], ENT_QUOTES, 'UTF-8') ?>
+                            <?= htmlspecialchars($c['id'] ?? 'N/A') ?>
                         </div>
                     </div>
                     <div class="row mb-1">
@@ -136,17 +175,36 @@ include 'navbar.php';
                             <strong>Fecha:</strong>
                         </div>
                         <div class="col-6 text-end">
-                            <?= htmlspecialchars($fechaFormateada, ENT_QUOTES, 'UTF-8') ?>
+                            <?= htmlspecialchars($fechaFormateada) ?>
                         </div>
                     </div>
-                    <div class="row mb-1">
-                        <div class="col-6">
-                            <strong>Cliente:</strong>
-                        </div>
-                        <div class="col-6 text-end">
-                            <?= htmlspecialchars($c['clienteId'], ENT_QUOTES, 'UTF-8') ?>
+                    
+                    <?php if ($clienteData && isset($clienteData['nombre'])): ?>
+                    <div class="card mt-2 mb-3">
+                        <div class="card-body p-3 bg-light">
+                            <h6 class="card-title mb-2">Datos del Cliente y Despacho:</h6>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <p class="mb-1"><strong>Cliente:</strong><br>
+                                    <?= htmlspecialchars($clienteData['nombre'] ?? 'N/A') ?></p>
+                                    <p class="mb-1"><strong>Email:</strong><br>
+                                    <?= htmlspecialchars($clienteData['email'] ?? 'N/A') ?></p>
+                                    <p class="mb-1"><strong>Teléfono:</strong><br>
+                                    <?= htmlspecialchars($clienteData['telefono'] ?? 'N/A') ?></p>
+                                </div>
+                                <div class="col-md-6">
+                                    <p class="mb-1"><strong>Dirección:</strong><br>
+                                    <?= htmlspecialchars($clienteData['direccion'] ?? 'N/A') ?></p>
+                                    <p class="mb-1">
+                                        <?= htmlspecialchars($clienteData['comuna'] ?? '') ?>
+                                        <?= isset($clienteData['provincia']) && $clienteData['provincia'] ? ', ' . htmlspecialchars($clienteData['provincia']) : '' ?>
+                                        <?= isset($clienteData['region']) && $clienteData['region'] ? ', ' . htmlspecialchars($clienteData['region']) : '' ?>
+                                    </p>
+                                </div>
+                            </div>
                         </div>
                     </div>
+                    <?php endif; ?>
                     
                     <?php if ($tieneDescuento && $cuponUsado): ?>
                     <div class="row mb-1">
@@ -154,7 +212,7 @@ include 'navbar.php';
                             <strong>Cupón:</strong>
                         </div>
                         <div class="col-6 text-end">
-                            <span class="badge bg-success"><?= htmlspecialchars($cuponUsado, ENT_QUOTES, 'UTF-8') ?></span>
+                            <span class="badge bg-success"><?= htmlspecialchars($cuponUsado) ?></span>
                         </div>
                     </div>
                     <?php endif; ?>
@@ -163,6 +221,7 @@ include 'navbar.php';
                 <hr class="my-2">
                 
                 <div class="mb-3">
+                    <?php if (!empty($items)): ?>
                     <table class="table table-sm table-borderless mb-0">
                         <thead>
                             <tr>
@@ -175,16 +234,16 @@ include 'navbar.php';
                         <tbody>
                             <?php 
                             $total_calculado = 0;
-                            foreach ($c['items'] as $it): 
-                                $prod = $map[$it['productoId']] ?? null;
-                                $nombre = $prod ? $prod['nombre'] : $it['productoId'];
+                            foreach ($items as $it): 
+                                $prod = isset($it['productoId']) ? ($map[$it['productoId']] ?? null) : null;
+                                $nombre = $prod ? $prod['nombre'] : ($it['productoId'] ?? 'Producto no disponible');
                                 $precio = $prod ? intval($prod['precio']) : 0;
-                                $cantidad = intval($it['cantidad']);
+                                $cantidad = isset($it['cantidad']) ? intval($it['cantidad']) : 0;
                                 $subtotal = $precio * $cantidad;
                                 $total_calculado += $subtotal;
                             ?>
                                 <tr class="ticket-item">
-                                    <td class="text-start"><?= htmlspecialchars($nombre, ENT_QUOTES, 'UTF-8') ?></td>
+                                    <td class="text-start"><?= htmlspecialchars($nombre) ?></td>
                                     <td class="text-center"><?= $cantidad ?></td>
                                     <td class="text-end">$<?= number_format($precio, 0, ',', '.') ?></td>
                                     <td class="text-end">$<?= number_format($subtotal, 0, ',', '.') ?></td>
@@ -192,6 +251,9 @@ include 'navbar.php';
                             <?php endforeach; ?>
                         </tbody>
                     </table>
+                    <?php else: ?>
+                        <p class="text-muted">No hay productos en este pedido.</p>
+                    <?php endif; ?>
                 </div>
 
                 <hr class="my-2">
@@ -229,11 +291,11 @@ include 'navbar.php';
 
                 <div class="text-center mt-4 pt-3 border-top">
                     <p class="mb-0 small text-muted">¡Gracias por su compra!</p>
-                    <p class="mb-0 small text-muted">Vuelva pronto</p>
+                    <p class="mb-0 small text-muted">Datos de despacho enviados al email registrado</p>
                 </div>
 
                 <div class="mt-3 no-print text-center">
-                    <button class="btn btn-outline-primary btn-sm" onclick="imprimirTicket('<?= htmlspecialchars($c['id'], ENT_QUOTES, 'UTF-8') ?>')">
+                    <button class="btn btn-outline-primary btn-sm" onclick="imprimirTicket('<?= htmlspecialchars($c['id']) ?>')">
                         🖨️ Imprimir ticket
                     </button>
                 </div>
@@ -248,50 +310,33 @@ include 'navbar.php';
 
 <script>
 function imprimirTicket(ticketId) {
-    if (!ticketId || typeof ticketId !== 'string') {
-        console.error('ID de ticket inválido');
-        return;
-    }
-    
-    const safeTicketId = ticketId.replace(/[^a-zA-Z0-9\-]/g, '');
-    
     const todosTickets = document.querySelectorAll('.ticket-print');
     todosTickets.forEach(ticket => {
         ticket.style.display = 'none';
     });
 
-    const ticketEspecifico = document.getElementById('ticket-' + safeTicketId);
-    if (!ticketEspecifico) {
-        console.error('Ticket no encontrado');
-        // Restaurar visibilidad
-        todosTickets.forEach(ticket => {
-            ticket.style.display = 'block';
-        });
-        return;
+    const ticketEspecifico = document.getElementById('ticket-' + ticketId);
+    if (ticketEspecifico) {
+        ticketEspecifico.style.display = 'block';
+        
+        const printContent = ticketEspecifico.innerHTML;
+        const originalContent = document.body.innerHTML;
+        
+        document.body.innerHTML = printContent;
+        window.print();
+        
+        document.body.innerHTML = originalContent;
+        
+        setTimeout(() => {
+            todosTickets.forEach(ticket => {
+                ticket.style.display = 'block';
+            });
+        }, 100);
     }
-
-    ticketEspecifico.style.display = 'block';
-    
-    const printContent = ticketEspecifico.innerHTML;
-    const originalContent = document.body.innerHTML;
-    
-    document.body.innerHTML = '<div class="container">' + printContent + '</div>';
-    window.print();
-    
-    document.body.innerHTML = originalContent;
-    
-    todosTickets.forEach(ticket => {
-        ticket.style.display = 'block';
-    });
 }
 
 function imprimirTodosTickets() {
     const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-        alert('Por favor permite ventanas emergentes para imprimir');
-        return;
-    }
-    
     const tickets = document.querySelectorAll('.ticket-print');
     
     let printContent = `
@@ -299,14 +344,8 @@ function imprimirTodosTickets() {
         <html>
         <head>
             <title>Tickets del día - Natural Power</title>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
-                body { 
-                    font-family: 'Courier New', monospace, Arial, sans-serif; 
-                    margin: 20px; 
-                    font-size: 14px;
-                }
+                body { font-family: Arial, sans-serif; margin: 20px; }
                 .ticket { 
                     border: 1px solid #000; 
                     padding: 15px; 
@@ -314,25 +353,10 @@ function imprimirTodosTickets() {
                     max-width: 400px; 
                     page-break-inside: avoid;
                 }
-                .ticket-header { 
-                    text-align: center; 
-                    border-bottom: 2px dashed #000; 
-                    padding-bottom: 10px; 
-                    margin-bottom: 15px; 
-                }
-                .ticket-total { 
-                    font-weight: bold; 
-                    margin-top: 15px; 
-                    padding-top: 10px; 
-                    border-top: 2px dashed #000; 
-                }
+                .ticket-header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 10px; margin-bottom: 15px; }
+                .ticket-total { font-weight: bold; margin-top: 15px; padding-top: 10px; border-top: 2px dashed #000; }
                 @media print {
-                    .ticket { 
-                        margin: 0 auto 20px auto !important; 
-                    }
-                    body { 
-                        padding: 10px; 
-                    }
+                    .ticket { margin: 0; }
                 }
             </style>
         </head>
@@ -341,7 +365,7 @@ function imprimirTodosTickets() {
     `;
     
     tickets.forEach(ticket => {
-        printContent += ticket.outerHTML;
+        printContent += ticket.innerHTML;
     });
     
     printContent += `
@@ -351,12 +375,7 @@ function imprimirTodosTickets() {
     
     printWindow.document.write(printContent);
     printWindow.document.close();
-    printWindow.focus();
-    
-    setTimeout(() => {
-        printWindow.print();
-        printWindow.close();
-    }, 500);
+    printWindow.print();
 }
 
 window.addEventListener('beforeprint', (event) => {
